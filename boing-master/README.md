@@ -1,3 +1,3 @@
 # boing-master
 
-A description of this package.
+A port to swift of boing.py
