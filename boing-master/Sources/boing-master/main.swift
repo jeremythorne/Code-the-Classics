@@ -22,20 +22,25 @@ func sign(x:Float) -> Float {
     return 1.0
 }
 
-class Impact:sgz.Actor {
+class UpdateableActor:sgz.Actor {
+    func update(app:sgz.App, game:MyGame) {
+    }
+}
+
+class Impact:UpdateableActor {
     var time = 0
 
     init(center:(x:Float, y:Float)) {
         super.init(image:"blank", center:center)
     }
 
-    func update(app:sgz.App, game:MyGame) {
+    override func update(app:sgz.App, game:MyGame) {
         self.image = "impact" + String(self.time / 2)
         self.time += 1
     }
 }
 
-class Ball:sgz.Actor {
+class Ball:UpdateableActor {
     var dx:Float = 0
     var dy:Float = 0
     var speed = 5
@@ -47,13 +52,13 @@ class Ball:sgz.Actor {
         self.dx = dx
     }
 
-    func update(app:sgz.App, game:MyGame) {
+    override func update(app:sgz.App, game:MyGame) {
         for _ in 0..<self.speed {
             let original_x = self.x
             self.x += self.dx
             self.y += self.dy
 
-            if (self.x - HALF_WIDTH).magnitude >= 344 && (original_x - HALF_WIDTH).magnitude < 344 {
+            if abs(self.x - HALF_WIDTH) >= 344 && abs(original_x - HALF_WIDTH) < 344 {
                 var new_dir_x:Float = -1.0
                 var bat = game.bats[1]
                 if self.x < HALF_WIDTH {
@@ -79,7 +84,7 @@ class Ball:sgz.Actor {
                     bat.timer = 10
                 }
             }
-            if (self.y - HALF_HEIGHT).magnitude > 220 {
+            if abs(self.y - HALF_HEIGHT) > 220 {
                 // bounce vertically
                 self.dy = -self.dy
                 self.y += self.dy
@@ -94,27 +99,30 @@ class Ball:sgz.Actor {
 
 }
 
-protocol Controls {
-    func move(app:sgz.App, game:MyGame, bat:Bat) -> Float
-}
+typealias MoveFunc = (sgz.App) -> Float
 
-class Bat:sgz.Actor {
+class Bat:UpdateableActor {
     var timer = 0
     var score = 0
     var player = 0
-    var controls:Controls
+    var controls:MoveFunc?
 
-    init(player:Int, controls:Controls?) {
+    init(player:Int, controls:MoveFunc?) {
         let x:Float = player == 0 ? 40 : 760
         let y = HALF_HEIGHT
         self.player = player
-        self.controls = controls ?? AI()
+        self.controls = controls
         super.init(image:"blank", center:(x, y))
     }
 
-    func update(app:sgz.App, game:MyGame) {
+    override func update(app:sgz.App, game:MyGame) {
         self.timer -= 1
-        let y_movement = controls.move(app:app, game:game, bat:self)
+        var y_movement:Float
+        if let controls = self.controls {
+            y_movement = controls(app)
+        } else {
+            y_movement = self.ai(app, game)
+        }
         self.y = min(400.0, max(80.0, self.y + y_movement))
         var frame = 0
         if self.timer > 0 {
@@ -122,46 +130,39 @@ class Bat:sgz.Actor {
         }
         self.image = "bat" + String(self.player) + String(frame)
     }
-}
 
-class P1Controls:Controls {
-    func move(app:sgz.App, game:MyGame, bat:Bat) -> Float {
-        var move:Float = 0
-        if app.pressed(sgz.KeyCode.z) || app.pressed(sgz.KeyCode.down) {
-            move = PLAYER_SPEED
-        } else if app.pressed(sgz.KeyCode.a) || app.pressed(sgz.KeyCode.up) {
-            move = -PLAYER_SPEED
-        }
-        return move
-    }
-}
-
-class P2Controls:Controls {
-    func move(app:sgz.App, game:MyGame, bat:Bat) -> Float {
-        var move:Float = 0
-        if app.pressed(sgz.KeyCode.m) {
-            move = PLAYER_SPEED
-        } else if app.pressed(sgz.KeyCode.k) {
-            move = -PLAYER_SPEED
-        }
-        return move
-    }
-}
-
-class AI:Controls {
-    func move(app:sgz.App, game:MyGame, bat:Bat) -> Float {
-        let x_distance = (game.ball.x - bat.x).magnitude
+    func ai(_ app:sgz.App, _ game:MyGame) -> Float {
+        let x_distance = abs(game.ball.x - self.x)
         let target_y_1 = HALF_HEIGHT
         let target_y_2 = game.ball.y + game.ai_offset
-        let weight1 = Float.minimum(1.0, x_distance / HALF_WIDTH)
+        let weight1 = min(1.0, x_distance / HALF_WIDTH)
         let weight2 = 1.0 - weight1
         let target_y = (weight1 * target_y_1) + (weight2 * target_y_2)
 
-        return Float.minimum(MAX_AI_SPEED,
-                             Float.maximum(-MAX_AI_SPEED,
-                                           target_y - bat.y))
+        return min(MAX_AI_SPEED, max(-MAX_AI_SPEED, target_y - self.y))
     }
 }
+
+func p1Controls(app:sgz.App) -> Float {
+    var move:Float = 0
+    if app.pressed(sgz.KeyCode.z) || app.pressed(sgz.KeyCode.down) {
+        move = PLAYER_SPEED
+    } else if app.pressed(sgz.KeyCode.a) || app.pressed(sgz.KeyCode.up) {
+        move = -PLAYER_SPEED
+    }
+    return move
+}
+
+func p2Controls(app:sgz.App) -> Float {
+    var move:Float = 0
+    if app.pressed(sgz.KeyCode.m) {
+        move = PLAYER_SPEED
+    } else if app.pressed(sgz.KeyCode.k) {
+        move = -PLAYER_SPEED
+    }
+    return move
+}
+
 
 class MyGame {
     var bats:[Bat]
@@ -169,20 +170,28 @@ class MyGame {
     var ball = Ball(dx:-1.0)
     var ai_offset:Float = 0
 
-    init(controls:(p0:Controls?, p1:Controls?)) {
+    init(controls:(p0:MoveFunc?, p1:MoveFunc?)) {
         self.bats = [Bat(player:0, controls:controls.p0),
                      Bat(player:1, controls:controls.p1)]
     }
 
-    func update(app:sgz.App) {
+    func allObjs() -> [UpdateableActor] {
+        var all = [UpdateableActor]()
         for obj in self.bats {
-            obj.update(app:app, game:self)
+            all.append(obj)
         }
-        self.ball.update(app:app, game:self)
+        all.append(self.ball)
         for obj in self.impacts {
+            all.append(obj)
+        }
+        return all
+    }
+
+    func update(app:sgz.App) {
+        for obj in allObjs() {
             obj.update(app:app, game:self)
         }
-
+ 
         var new_impacts = [Impact]()
         for impact in self.impacts {
             if impact.time < 10 {
@@ -212,11 +221,7 @@ class MyGame {
             }
         }
 
-        for obj in self.bats {
-            obj.draw(app:app)
-        }
-        self.ball.draw(app:app)
-        for obj in self.impacts {
+        for obj in allObjs() {
             obj.draw(app:app)
         }
 
@@ -269,8 +274,8 @@ class UI:sgz.Game {
         case State.MENU:
             if space_pressed {
                 self.state = State.PLAY
-                let controls = (P1Controls(),
-                                self.num_players == 2 ? P2Controls() : nil)
+                let controls = (p1Controls,
+                                self.num_players == 2 ? p2Controls : nil)
                 self.game = MyGame(controls:controls)
             } else {
                 if self.num_players == 2 && app.pressed(KeyCode.up) {
