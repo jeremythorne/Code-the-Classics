@@ -82,6 +82,18 @@ class Ball:UpdateableActor {
                     self.speed += 1
                     game.ai_offset = Float.random(in: -10.0...10.0)
                     bat.timer = 10
+
+                    game.playSound(app:app, "hit", 5)
+                    switch(self.speed) {
+                    case 0...10:
+                        game.playSound(app:app, "hit_slow", 1)
+                    case 11...12:
+                        game.playSound(app:app, "hit_medium", 1)
+                    case 13...16:
+                        game.playSound(app:app, "hit_fast", 1)
+                    default:
+                        game.playSound(app:app, "hit_veryfast", 1)
+                    }
                 }
             }
             if abs(self.y - HALF_HEIGHT) > 220 {
@@ -89,6 +101,9 @@ class Ball:UpdateableActor {
                 self.dy = -self.dy
                 self.y += self.dy
                 game.impacts.append(Impact(center:(self.x, self.y)))
+ 
+                game.playSound(app:app, "bounce", 5)
+                game.playSound(app:app, "bounce_synth", 1)
             }
         }
     }
@@ -113,6 +128,10 @@ class Bat:UpdateableActor {
         self.player = player
         self.controls = controls
         super.init(image:"blank", center:(x, y))
+    }
+
+    func isAI() -> Bool {
+        return self.controls == nil
     }
 
     override func update(app:sgz.App, game:MyGame) {
@@ -205,6 +224,7 @@ class MyGame {
             let losing_player = 1 - scoring_player
             if self.bats[losing_player].timer < 0 {
                 self.bats[scoring_player].score += 1
+                self.playSound(app:app, "score_goal", 1)
                 self.bats[losing_player].timer = 20
             } else if self.bats[losing_player].timer == 0 {
                 let direction:Float = losing_player == 0 ? -1.0 : 1.0
@@ -248,6 +268,12 @@ class MyGame {
             i = i / 10
         }
         return s
+    }
+
+    func playSound(app:App, _ name:String, _ count:Int) {
+        if !self.bats[0].isAI() {
+            app.playSound(name: name + String(Int.random(in:0..<count)))
+        }
     }
 }
 
