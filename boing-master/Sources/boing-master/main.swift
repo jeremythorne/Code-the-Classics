@@ -8,7 +8,7 @@ let HALF_WIDTH = WIDTH / 2.0
 let HALF_HEIGHT = HEIGHT / 2.0
 
 let PLAYER_SPEED:Float = 6.0
-let MAX_AI_SPEED:Float = 6.0
+let MAX_AI_SPEED:Float = 3.0
 
 func normalised(x:Float, y:Float) -> (x: Float, y:Float) {
     let length = (x * x + y * y).squareRoot()
