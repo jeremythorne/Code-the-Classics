@@ -9,4 +9,5 @@ https://github.com/jeremythorne/swift-game-zero
 ## Status
 * boing - graphics, sound effects and gameplay port complete
 * other games - not attempted
-* audio - only one sound effect at a time, no music
+* graphics - simple blits
+* audio - multiple sound effects in parallel, no music
