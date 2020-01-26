@@ -31,7 +31,7 @@ class Impact:UpdateableActor {
     var time = 0
 
     init(center:(x:Float, y:Float)) {
-        super.init(image:"blank", center:center)
+        super.init(image:"blank", pos:center)
     }
 
     override func update(app:sgz.App, game:MyGame) {
@@ -46,7 +46,7 @@ class Ball:UpdateableActor {
     var speed = 5
 
     init(dx:Float) {
-        super.init(image:"ball", center:(0, 0))
+        super.init(image:"ball", pos:(0, 0))
         self.x = Float(HALF_WIDTH)
         self.y = Float(HALF_HEIGHT)
         self.dx = dx
@@ -127,7 +127,7 @@ class Bat:UpdateableActor {
         let y = HALF_HEIGHT
         self.player = player
         self.controls = controls
-        super.init(image:"blank", center:(x, y))
+        super.init(image:"blank", pos:(x, y))
     }
 
     func isAI() -> Bool {
