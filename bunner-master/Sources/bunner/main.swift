@@ -34,7 +34,13 @@ class MyActor: sgz.Actor {
 
 class Eagle : MyActor {
     init(pos:(x:Float, y:Float)) {
-        super.init(image:"eagle", pos:pos)
+        super.init(image:"eagles", pos:pos)
+
+        self.children.append(MyActor("eagle", pos:(0, -32)))
+    }
+
+    override update(app:sgz.App, game:MyGame) {
+        self.y += 12
     }
 }
 
