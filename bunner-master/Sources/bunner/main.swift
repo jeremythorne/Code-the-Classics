@@ -168,15 +168,55 @@ class Bunner : MyActor {
     }
 }
 
+class MoverBase : MyActor {
+    var dx:Float
+    init(dx:Float, image:String, pos:(x:Float, y:Float)) {
+        self.dx = dx
+        super.init(image:image, pos:pos)
+    }
+
+    override func update(app:sgz.App, game:MyGame) {
+        x += dx
+    }
+}
+
+protocol MoverInit {
+    init(dx:Float, pos:(x:Float, y:Float))
+}
+
+typealias Mover = MoverBase & MoverInit
+
+class Car : Mover {
+    let SOUND_ZOOM = 0
+    let SOUND_HONK = 1
+    var played = [false, false]
+    var sounds = [("zoom", 6), ("honk", 4)]
+
+    required init(dx:Float, pos:(x:Float, y:Float)) {
+        let im = "car\(Int.random(in:0...3))" + (dx < 0 ? "0" : "1")
+        super.init(dx:dx, image:im, pos:pos)
+    }
+
+    func play_sound(app:sgz.App, game:MyGame, num:Int) {
+        if !played[num] {
+            let sound = sounds[num]
+            game.play_sound(app:app, sound.0, sound.1)
+            played[num] = true 
+        }
+    }
+}
+
 typealias Row = RowBase & NextRow
 
 protocol NextRow {
+    init(predecessor:Row?, index:Int, y:Float)
     func next() -> Row
 }
 
 class RowBase : MyActor {
     var index:Int
     var dx:Float = 0
+
     init(base_image:String, index:Int, y:Float) {
         self.index = index
         super.init(image:base_image + String(index),
@@ -211,19 +251,100 @@ class RowBase : MyActor {
     }
 }
 
+typealias ActiveRow = ActiveRowBase & NextRow
+
+class ActiveRowBase : RowBase {
+    var timer:Int = 0
+    var child_type:Mover.Type
+    init(child_type:Mover.Type, dxs:[Float], base_image:String,
+         index:Int, y:Float) {
+        self.child_type = child_type
+        super.init(base_image:base_image, index:index, y:y)
+        self.dx = choice(dxs)
+        assert(dx != 0)
+        var cx = Int(-WIDTH) / 2 - 70
+        while cx < Int(WIDTH) / 2 + 70 {
+            cx += Int.random(in:240...480)
+            let cpos = (WIDTH / 2 + (dx > 0 ? x : -x), Float(0))
+            children.append(child_type.init(dx:dx, pos:cpos))
+        }
+    }
+
+    override func update(app:sgz.App, game:MyGame) {
+        super.update(app:app, game:game)
+        children = children.filter { $0.x > -70 && $0.x < WIDTH + 70 }
+        timer -= 1
+
+        if timer < 0 {
+            let cpos = (dx < 0 ? WIDTH + 70 : -70, Float(0))
+            children.append(child_type.init(dx:dx, pos:cpos))
+            timer = Int((1 + Float.random(in:0..<1)) * 240 / abs(dx))
+        }
+    }
+}
+
+class Road : ActiveRow {
+    required init(predecessor:Row?, index:Int, y:Float) {
+        print("Road::init \(index) \(y)")
+        var dxs = [Float]()
+        for i in -5...5 {
+            dxs.append(Float(i))
+        }
+        if let prev = predecessor {
+            dxs = dxs.filter { $0 != prev.dx && $0 != 0 }
+        }
+        super.init(child_type:Car.self, dxs:dxs, base_image:"road",
+                  index:index, y:y) 
+    }
+
+    // TODO update, check_collision, play_sound
+
+    func next() -> Row {
+        let (row_class, new_index) = { () -> (Row.Type, Int) in
+            switch(index) {
+            case 0:
+                return (Road.self, index + 1)
+            case 1..<5:
+                switch(Float.random(in:0..<1)) {
+                case 0..<0.8:
+                    return (Road.self, index + 1)
+                default:
+                    return (Grass.self, Int.random(in:0..<6))
+                    // TODO Rail, Pavement
+                }
+            default:
+                return (Grass.self, Int.random(in:0..<6))
+                // TODO Rail, Pavement
+            }
+        } ()
+        return row_class.init(predecessor:self, index:new_index,
+                                y:y - Float(ROW_HEIGHT))
+    }
+}
+
+class Hedge : MyActor {
+    init(x:Int, y:Int, pos:(Float, Float)) {
+        super.init(image:"bush\(x)\(y)", pos:pos)
+    }
+}
+
 func generate_hedge_mask() -> [Bool] {
     return Array(repeating:false, count:17)
 }
 
 func classify_hedge_segment(_ mask:[Bool], _ mid_segment:Bool?) ->
-    (mid_segment:Bool, sprite_x:Float?) {
+    (mid_segment:Bool, sprite_x:Int?) {
     return (false, nil)
+}
+
+func choice<T>(_ list:[T]) -> T {
+    return list[Int.random(in:0..<list.count)]
 }
 
 class Grass : Row {
     var hedge_row_index:Int?
     var hedge_mask = Array(repeating:false, count:17)
-    init(predecessor:Row?, index:Int, y:Float) {
+    required init(predecessor:Row?, index:Int, y:Float) {
         super.init(base_image:"grass", index:index, y:y)
         print("Grass::init \(index) \(y)")
         let grass = predecessor as? Grass
@@ -243,10 +364,9 @@ class Grass : Row {
                     Array(hedge_mask[(i - 1)...(i + 3)]), previous_mid_segment)
                 previous_mid_segment = seg.mid_segment
                 if seg.sprite_x != nil {
-                    // TODO Hedge
-                    //children.append(
-                    //    Hedge(x:seg.sprite_x, index:hedge_row_index,
-                    //          (i * 40 - 20, 0)))
+                    children.append(
+                        Hedge(x:seg.sprite_x!, y:hedge_row_index!,
+                              pos:(Float(i * 40 - 20), 0)))
                 }
             }
         }
@@ -261,24 +381,53 @@ class Grass : Row {
     }
 
     func next() -> Row {
-        print("Grass::next")
-        let new_y = y - Float(ROW_HEIGHT)
-        switch(index) {
-        case 0...5:
-            return Grass(predecessor:self, index:index + 8, y:new_y)
-        case 6:
-            return Grass(predecessor:self, index:7, y:new_y)
-        case 7:
-            return Grass(predecessor:self, index:15, y:new_y)
-        case 9...14:
-            return Grass(predecessor:self, index:index + 1, y:new_y)
-        default:
-            return Grass(predecessor:self, index:0, y:new_y)
-        //    if Float.random(in:0..<1) < 0.5 {
-        //        return nil //TODO return Road
-        //    }
-        //    return nil //TODO return Water
-        }
+        let (row_class, new_index) = { () -> (Row.Type, Int) in
+            switch(index) {
+            case 0...5:
+                return (Grass.self, index + 8)
+            case 6:
+                return (Grass.self, 7)
+            case 7:
+                return (Grass.self, 15)
+            case 9...14:
+                return (Grass.self, index + 1)
+            default:
+                //return (choice([Road.self, Water.self]), 0)
+                return (Road.self, 0)
+            }
+        } ()
+        return row_class.init(predecessor:self, index:new_index,
+                         y:y - Float(ROW_HEIGHT))
+    }
+}
+
+class Dirt : Row {
+    required init(predecessor:Row?, index:Int, y:Float) {
+        super.init(base_image:"dirt", index:index, y:y)
+    }
+    
+    override func play_sound(app:sgz.App, game:MyGame) {
+        game.play_sound(app:app, "dirt", 1)
+    }
+
+    func next() -> Row {
+        let (row_class, new_index) = { () -> (Row.Type, Int) in
+            switch(index) {
+            case 0...5:
+                return (Dirt.self, index + 8)
+            case 6:
+                return (Dirt.self, 7)
+            case 7:
+                return (Dirt.self, 15)
+            case 8...14:
+                return (Dirt.self, index + 1)
+            default:
+                // return (choice([Road.self, Water.self]), 0)
+                return (Road.self, 0)
+            }
+        } ()
+        return row_class.init(predecessor:self, index:new_index,
+                         y:y - Float(ROW_HEIGHT))
     }
 }
 
@@ -294,7 +443,6 @@ class MyGame {
     }
 
     func update(app:sgz.App) {
-        print("MyGame::update")
         if let bunner = self.bunner {
             scroll_pos -= max(1, min(3,
                 (scroll_pos + HEIGHT - bunner.y) / Float(HEIGHT / 4)))
@@ -302,13 +450,9 @@ class MyGame {
             scroll_pos -= 1
         }
         
-        var new_rows = [Row]()
-        for row in rows {
-            if row.y < scroll_pos + HEIGHT + Float(ROW_HEIGHT) * 2 {
-                new_rows.append(row)
-            }
+        rows = rows.filter {
+            $0.y < scroll_pos + HEIGHT + Float(ROW_HEIGHT) * 2
         }
-        rows = new_rows
 
         var row = rows[rows.count - 1]
         while row.y > scroll_pos + Float(ROW_HEIGHT) {
@@ -316,25 +460,19 @@ class MyGame {
             row = rows[rows.count - 1]
         }
 
-        for row in rows {
-            row.update(app:app, game:self)
-        }
+        rows.forEach { $0.update(app:app, game:self) }
         if let bunner = self.bunner {
             bunner.update(app:app, game:self)
         }
         if let eagle = self.eagle {
             eagle.update(app:app, game:self)
         }
-        print("MyGame::update end")
         // TODO sounds
     }
 
     func draw(app:sgz.App) {
-        print("MyGame::draw")
         var all_objs = [MyActor]()
-        for row in rows {
-            all_objs.append(row)
-        }
+        rows.forEach { all_objs.append($0) }
 
         if let bunner = self.bunner {
             all_objs.append(bunner)
@@ -349,8 +487,7 @@ class MyGame {
             all_objs.append(eagle)
         }
 
-        _ = all_objs.map { $0.draw(app:app, 0, -scroll_pos) }
-        print("MyGame::draw end")
+        all_objs.forEach { $0.draw(app:app, 0, -scroll_pos) }
     }
 
     func score() -> Int {
@@ -415,22 +552,19 @@ class UI:sgz.Game {
         var i = 0
         let ns = String(n)
         for c in ns {
-            //app.blit(name:"digit\(colour)" + c,
-            //         pos:(Float(x + (i - ns.count * align) * 25), 0))
+            app.blit(name:"digit\(colour)" + String(c),
+                     pos:(Float(x + (i - ns.count * align) * 25), 0))
             i += 1
         }
     }
 
     override func draw(app:sgz.App) {
-        print("UI::draw")
         game.draw(app:app)
         switch state {
         case .MENU:
-            print("case Menu")
             app.blit(name:"title", pos:(0, 0))
             let start_index = 
-                [0, 1, 2, 1][max(Int(game.scroll_pos) / 6, 0) % 4]
-            print("start_index \(start_index)")
+                [0, 1, 2, 1][(Int(abs(game.scroll_pos)) / 6) % 4]
             app.blit(name:"start" + String(start_index),
                 pos:((WIDTH - 270) / 2, HEIGHT - 240))
         case .PLAY:
@@ -439,7 +573,6 @@ class UI:sgz.Game {
         case .GAME_OVER:
             app.blit(name:"gameover", pos:(0,0))
         }
-        print("UI::draw end")
     }
 
 }
