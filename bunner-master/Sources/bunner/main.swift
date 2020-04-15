@@ -88,7 +88,7 @@ class Bunner : MyActor {
     var min_y:Float = 0
 
     init(pos:(x:Float, y:Float)) {
-        super.init(image:"blank", pos:pos)
+        super.init(image:"", pos:pos)
         min_y = y
     }
 
@@ -166,7 +166,7 @@ class Bunner : MyActor {
         }
 
         min_y = min(min_y, y)
-        image = "blank"
+        image = ""
 
         if state == PlayerState.ALIVE {
             if timer > 0 {
