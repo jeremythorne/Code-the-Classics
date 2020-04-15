@@ -136,7 +136,7 @@ class Bunner : MyActor {
             }
 
             if let current_row = current_row_o {
-                let col = current_row.check_collision(x)
+                let col = current_row.check_collision(app:app, game:game, x)
                 state = col.state
                 if state == PlayerState.ALIVE {
                     x += current_row.push()
@@ -271,7 +271,7 @@ class RowBase : MyActor {
         return x >= 16 && x <= WIDTH - 16
     }
 
-    func check_collision(_ x:Float) ->
+    func check_collision(app:sgz.App, game:MyGame, _ x:Float) ->
         (state:PlayerState, dead_obj_y_offset:Float) {
             return (PlayerState.ALIVE, 0)
     }
@@ -435,7 +435,16 @@ class Road : ActiveRow {
                   index:index, y:y) 
     }
 
-    // TODO update, check_collision
+    // TODO update
+
+    override func check_collision(app:sgz.App, game:MyGame, _ x:Float) ->
+        (state:PlayerState, dead_obj_y_offset:Float) {
+        if collide(app:app, x:x) != nil {
+            game.play_sound(app:app, "splat", 1)
+            return (PlayerState.SPLAT, 0)
+        }
+        return (PlayerState.ALIVE, 0)
+    }
 
     override func play_sound(app:sgz.App, game:MyGame) {
         game.play_sound(app:app, "road", 1)
