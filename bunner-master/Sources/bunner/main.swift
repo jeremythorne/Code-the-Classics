@@ -6,6 +6,16 @@ let TITLE = "Infinite Bunner"
 
 let ROW_HEIGHT = 40
 
+var key_status = [sgz.KeyCode:Bool]()
+
+func key_just_pressed(app:sgz.App, _ key:sgz.KeyCode) -> Bool {
+    let prev_status:Bool = key_status[key] ?? false
+    let result = !prev_status && app.pressed(key)
+    key_status[key] = app.pressed(key)
+    return result
+}
+
+
 class MyActor: sgz.Actor {
     var children = [MyActor]()
     override init(image:String, pos:(x:Float, y:Float),
@@ -73,7 +83,7 @@ class Bunner : MyActor {
 
     var state:PlayerState = PlayerState.ALIVE
     var direction = 2
-    var timer = 2
+    var timer = 0
     var input_queue:[Int] = []
     var min_y:Float = 0
 
@@ -83,7 +93,9 @@ class Bunner : MyActor {
     }
 
     func handle_input(app:sgz.App, game:MyGame, dir:Int) {
+        print("handle \(dir)")
         for row in game.rows {
+            //print("row.y\(row.y) \(y) \(y + MOVE_DISTANCE * DY[dir])")
             if row.y == y + MOVE_DISTANCE * DY[dir] {
                 if row.allow_movement(app:app, x + MOVE_DISTANCE * DX[dir]) {
                     direction = dir
@@ -96,10 +108,10 @@ class Bunner : MyActor {
     }
 
     override func update(app:sgz.App, game:MyGame) {
-        for direction in 0..<4 {
-            if game.key_just_pressed(
-                direction_keys[direction]) {
-                input_queue.append(direction)
+        for dir in 0..<4 {
+            if key_just_pressed(app:app,
+                direction_keys[dir]) {
+                input_queue.append(dir)
             }
         }
 
@@ -206,6 +218,20 @@ class Car : Mover {
     }
 }
 
+class Log : Mover {
+    required init(dx:Float, pos:(x:Float, y:Float)) {
+        let im = "log\(Int.random(in:0...1))"
+        super.init(dx:dx, image:im, pos:pos)
+    }
+}
+
+class Train : Mover {
+    required init(dx:Float, pos:(x:Float, y:Float)) {
+        let im = "train\(Int.random(in:0...2))" + (dx < 0 ? "0" : "1")
+        super.init(dx:dx, image:im, pos:pos)
+    }
+}
+
 typealias Row = RowBase & NextRow
 
 protocol NextRow {
@@ -283,45 +309,6 @@ class ActiveRowBase : RowBase {
     }
 }
 
-class Road : ActiveRow {
-    required init(predecessor:Row?, index:Int, y:Float) {
-        print("Road::init \(index) \(y)")
-        var dxs = [Float]()
-        for i in -5...5 {
-            dxs.append(Float(i))
-        }
-        if let prev = predecessor {
-            dxs = dxs.filter { $0 != prev.dx && $0 != 0 }
-        }
-        super.init(child_type:Car.self, dxs:dxs, base_image:"road",
-                  index:index, y:y) 
-    }
-
-    // TODO update, check_collision, play_sound
-
-    func next() -> Row {
-        let (row_class, new_index) = { () -> (Row.Type, Int) in
-            switch(index) {
-            case 0:
-                return (Road.self, index + 1)
-            case 1..<5:
-                switch(Float.random(in:0..<1)) {
-                case 0..<0.8:
-                    return (Road.self, index + 1)
-                default:
-                    return (Grass.self, Int.random(in:0..<6))
-                    // TODO Rail, Pavement
-                }
-            default:
-                return (Grass.self, Int.random(in:0..<6))
-                // TODO Rail, Pavement
-            }
-        } ()
-        return row_class.init(predecessor:self, index:new_index,
-                                y:y - Float(ROW_HEIGHT))
-    }
-}
-
 class Hedge : MyActor {
     init(x:Int, y:Int, pos:(Float, Float)) {
         super.init(image:"bush\(x)\(y)", pos:pos)
@@ -329,7 +316,7 @@ class Hedge : MyActor {
 }
 
 func generate_hedge_mask() -> [Bool] {
-    return Array(repeating:false, count:17)
+    return Array(repeating:false, count:15)
 }
 
 func classify_hedge_segment(_ mask:[Bool], _ mid_segment:Bool?) ->
@@ -343,7 +330,7 @@ func choice<T>(_ list:[T]) -> T {
 
 class Grass : Row {
     var hedge_row_index:Int?
-    var hedge_mask = Array(repeating:false, count:17)
+    var hedge_mask = Array(repeating:false, count:15)
     required init(predecessor:Row?, index:Int, y:Float) {
         super.init(base_image:"grass", index:index, y:y)
         print("Grass::init \(index) \(y)")
@@ -359,9 +346,10 @@ class Grass : Row {
         }
         if hedge_row_index != nil {
             var previous_mid_segment:Bool?
-            for i in 1...13 {
+            for i in 1..<13 {
                 let seg = classify_hedge_segment(
-                    Array(hedge_mask[(i - 1)...(i + 3)]), previous_mid_segment)
+                    Array(hedge_mask[(i - 1)..<(i + 3)]),
+                        previous_mid_segment)
                 previous_mid_segment = seg.mid_segment
                 if seg.sprite_x != nil {
                     children.append(
@@ -373,7 +361,7 @@ class Grass : Row {
     }
 
     override func allow_movement(app:sgz.App, _ x:Float) -> Bool {
-        return super.allow_movement(app:app, x) && collide(app:app, x: x, margin: 8) != nil
+        return super.allow_movement(app:app, x) && collide(app:app, x: x, margin: 8) == nil
     }
     
     override func play_sound(app:sgz.App, game:MyGame) {
@@ -389,7 +377,7 @@ class Grass : Row {
                 return (Grass.self, 7)
             case 7:
                 return (Grass.self, 15)
-            case 9...14:
+            case 8...14:
                 return (Grass.self, index + 1)
             default:
                 //return (choice([Road.self, Water.self]), 0)
@@ -431,12 +419,88 @@ class Dirt : Row {
     }
 }
 
+class Road : ActiveRow {
+    required init(predecessor:Row?, index:Int, y:Float) {
+        print("Road::init \(index) \(y)")
+        var dxs = [Float]()
+        for i in -5...5 {
+            if i != 0 {
+                dxs.append(Float(i))
+            }
+        }
+        if let prev = predecessor {
+            dxs = dxs.filter { $0 != prev.dx }
+        }
+        super.init(child_type:Car.self, dxs:dxs, base_image:"road",
+                  index:index, y:y) 
+    }
+
+    // TODO update, check_collision
+
+    override func play_sound(app:sgz.App, game:MyGame) {
+        game.play_sound(app:app, "road", 1)
+    }
+
+    func next() -> Row {
+        let (row_class, new_index) = { () -> (Row.Type, Int) in
+            switch(index) {
+            case 0:
+                return (Road.self, 1)
+            case 1..<5:
+                switch(Float.random(in:0..<1)) {
+                case 0..<0.8:
+                    return (Road.self, index + 1)
+                case 0.8..<0.88:
+                    return (Grass.self, Int.random(in:0...6))
+                default:
+                    return (Pavement.self, 0)
+                    // TODO Rail
+                }
+            default:
+                switch(Float.random(in:0..<1)) {
+                case 0..<0.6:
+                    return (Grass.self, Int.random(in:0...6))
+                default:
+                    return (Pavement.self, 0)
+                // TODO Rail
+                }
+            }
+        } ()
+        return row_class.init(predecessor:self, index:new_index,
+                                y:y - Float(ROW_HEIGHT))
+    }
+}
+
+class Pavement : Row {
+    required init(predecessor:Row?, index:Int, y:Float) {
+        super.init(base_image:"side", index:index, y:y)
+    }
+    
+    override func play_sound(app:sgz.App, game:MyGame) {
+        game.play_sound(app:app, "sidewalk", 1)
+    }
+
+    func next() -> Row {
+        let (row_class, new_index) = { () -> (Row.Type, Int) in
+            switch(index) {
+            case 0...1:
+                return (Pavement.self, index + 1)
+            default:
+                return (Road.self, 0)
+            }
+        } ()
+        return row_class.init(predecessor:self, index:new_index,
+                         y:y - Float(ROW_HEIGHT))
+    }
+}
+
 class MyGame {
     var bunner:Bunner?
     var rows:[Row] = [Grass(predecessor:nil, index:0, y:0)]
     var scroll_pos:Float = -HEIGHT
     var eagle:Eagle?
     var frame = 0
+    // TODO looped sounds, volume
 
     init(bunner:Bunner? = nil) {
         self.bunner = bunner
@@ -445,7 +509,7 @@ class MyGame {
     func update(app:sgz.App) {
         if let bunner = self.bunner {
             scroll_pos -= max(1, min(3,
-                (scroll_pos + HEIGHT - bunner.y) / Float(HEIGHT / 4)))
+                (scroll_pos + HEIGHT - bunner.y) / Float(Int(HEIGHT) / 4)))
         } else {
             scroll_pos -= 1
         }
@@ -503,10 +567,6 @@ class MyGame {
         }
     }
 
-    func key_just_pressed(_ key:sgz.KeyCode) -> Bool {
-        return false
-    }
-
 }
 
 enum State:Int {
@@ -523,7 +583,7 @@ class UI:sgz.Game {
     override func update(app:sgz.App) {
         switch state {
         case .MENU:
-            if app.pressed(KeyCode.space) {
+            if key_just_pressed(app:app, KeyCode.space) {
                 state = State.PLAY
                 game = MyGame(bunner:Bunner(pos:(240, -320)))
             } else {
@@ -540,7 +600,7 @@ class UI:sgz.Game {
                 game.update(app:app)
             }
         case .GAME_OVER:
-            if app.pressed(KeyCode.space) {
+            if key_just_pressed(app:app, KeyCode.space) {
                 state = State.MENU
                 game = MyGame()
             }
