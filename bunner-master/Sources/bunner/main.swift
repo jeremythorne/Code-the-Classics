@@ -461,17 +461,19 @@ class Road : ActiveRow {
                     return (Road.self, index + 1)
                 case 0.8..<0.88:
                     return (Grass.self, Int.random(in:0...6))
+                case 0.88..<0.94:
+                    return (Rail.self, 0)
                 default:
                     return (Pavement.self, 0)
-                    // TODO Rail
                 }
             default:
                 switch(Float.random(in:0..<1)) {
                 case 0..<0.6:
                     return (Grass.self, Int.random(in:0...6))
+                case 0.6..<0.9:
+                    return (Rail.self, 0)
                 default:
                     return (Pavement.self, 0)
-                // TODO Rail
                 }
             }
         } ()
@@ -495,6 +497,58 @@ class Pavement : Row {
             case 0...1:
                 return (Pavement.self, index + 1)
             default:
+                return (Road.self, 0)
+            }
+        } ()
+        return row_class.init(predecessor:self, index:new_index,
+                         y:y - Float(ROW_HEIGHT))
+    }
+}
+
+class Rail : Row {
+    var predecessor:Row?
+    required init(predecessor:Row?, index:Int, y:Float) {
+        self.predecessor = predecessor
+        super.init(base_image:"rail", index:index, y:y)
+    }
+    
+    override func update(app:sgz.App, game:MyGame) {
+        super.update(app:app, game:game)
+        if index == 1 {
+            children = children.filter { $0.x > -1000 &&
+                $0.x < WIDTH + 1000 }
+            if y < game.scroll_pos + HEIGHT && children.count == 0
+                && Float.random(in:0..<1) < 0.01 {
+                let dx = Float(choice([-20, 20]))
+                children.append(Train(dx:dx, 
+                    pos:(dx < 0 ? WIDTH + 1000 : -1000, -13)))
+                game.play_sound(app:app, "bell")
+                game.play_sound(app:app, "train", 2)
+            }
+        }
+    }
+
+    override func check_collision(app:sgz.App, game:MyGame, _ x:Float) ->
+        (state:PlayerState, dead_obj_y_offset:Float) {
+        if index == 2 && predecessor?.collide(app:app, x:x) != nil {
+            game.play_sound(app:app, "splat", 1)
+            return (PlayerState.SPLAT, 8)
+        }
+        return (PlayerState.ALIVE, 0)
+    }
+
+    override func play_sound(app:sgz.App, game:MyGame) {
+        game.play_sound(app:app, "grass", 1)
+    }
+
+    func next() -> Row {
+        let (row_class, new_index) = { () -> (Row.Type, Int) in
+            switch(index) {
+            case 0..<3:
+                return (Rail.self, index + 1)
+            default:
+                //return (choice([Road.self, Water.self], 0))
+                // TODO Water
                 return (Road.self, 0)
             }
         } ()
@@ -534,12 +588,8 @@ class MyGame {
         }
 
         rows.forEach { $0.update(app:app, game:self) }
-        if let bunner = self.bunner {
-            bunner.update(app:app, game:self)
-        }
-        if let eagle = self.eagle {
-            eagle.update(app:app, game:self)
-        }
+        bunner?.update(app:app, game:self)
+        eagle?.update(app:app, game:self)
         // TODO sounds
     }
 
